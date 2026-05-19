@@ -16,6 +16,7 @@ const socket = io();
 const remoteVideo = document.getElementById('remote-video');
 const liveBadge   = document.getElementById('live-badge');
 const offlineMsg  = document.getElementById('offline-msg');
+const btnUnmute   = document.getElementById('btn-unmute');
 const status      = document.getElementById('status');
 
 const RTC_CONFIG = {
@@ -23,21 +24,42 @@ const RTC_CONFIG = {
 };
 
 let pc            = null;
-let from          = null;  // broadcaster's socket id
-let iceCandidates = [];    // buffer for candidates that arrive before remote desc is set
+let from          = null;
+let iceCandidates = [];
 let remoteDescSet = false;
+
+function resetState() {
+  if (pc) { pc.close(); pc = null; }
+  from          = null;
+  remoteDescSet = false;
+  iceCandidates = [];
+}
+
+function showStream(stream) {
+  // Video starts muted so Chrome autoplay policy allows it without user gesture.
+  // The unmute button lets the viewer opt in to sound after the first interaction.
+  remoteVideo.srcObject = stream;
+  remoteVideo.muted = true;
+  remoteVideo.play();
+
+  offlineMsg.style.display = 'none';
+  liveBadge.classList.add('visible');
+  btnUnmute.hidden = false;
+  status.textContent = 'En live.';
+
+  btnUnmute.onclick = () => {
+    remoteVideo.muted = false;
+    btnUnmute.hidden = true;
+  };
+}
 
 function createPeerConnection() {
   pc = new RTCPeerConnection(RTC_CONFIG);
 
   // ontrack fires when the broadcaster's media tracks arrive over the P2P channel.
   // streams[0] is the full MediaStream (video + audio) — not just a single track.
-  // We assign it to srcObject so the browser plays both tracks automatically.
   pc.ontrack = ({ streams }) => {
-    remoteVideo.srcObject = streams[0];
-    offlineMsg.style.display = 'none';
-    liveBadge.classList.add('visible');
-    status.textContent = 'En live.';
+    if (streams[0]) showStream(streams[0]);
   };
 
   // Forward our ICE candidates to the broadcaster via signaling.
@@ -50,8 +72,9 @@ function createPeerConnection() {
   pc.onconnectionstatechange = () => {
     console.log('Connection state:', pc.connectionState);
     if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
-      status.textContent = 'Stream interrompu.';
       liveBadge.classList.remove('visible');
+      btnUnmute.hidden = true;
+      status.textContent = 'Stream interrompu.';
     }
   };
 }
@@ -63,7 +86,6 @@ socket.on('connect', () => {
   socket.emit('viewer-joined');
 });
 
-// Broadcaster went live while we're already on the page
 socket.on('broadcaster-ready', () => {
   offlineMsg.style.display = 'none';
   status.textContent = 'Broadcaster en ligne — connexion...';
@@ -71,13 +93,13 @@ socket.on('broadcaster-ready', () => {
 });
 
 socket.on('broadcaster-left', () => {
+  resetState();
+  remoteVideo.srcObject = null;
   liveBadge.classList.remove('visible');
+  btnUnmute.hidden = true;
   offlineMsg.style.display = 'flex';
-  offlineMsg.textContent = 'Stream terminé.';
+  offlineMsg.textContent = 'En attente du stream...';
   status.textContent = 'Le broadcast est terminé.';
-  if (pc) { pc.close(); pc = null; }
-  remoteDescSet = false;
-  iceCandidates = [];
 });
 
 socket.on('disconnect', () => {
@@ -90,30 +112,25 @@ socket.on('signal', async ({ from: senderId, data }) => {
   from = senderId;
 
   if (data.type === 'offer') {
-    // Close any stale connection before starting fresh
-    if (pc) { pc.close(); }
-    remoteDescSet = false;
-    iceCandidates = [];
+    // Full reset before each new session — ensures clean state on relaunch
+    resetState();
+    from = senderId;
     createPeerConnection();
 
-    // setRemoteDescription() stores the broadcaster's SDP (their capabilities).
     await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
     remoteDescSet = true;
 
-    // Flush ICE candidates that arrived before the offer was fully processed.
     for (const c of iceCandidates) {
       await pc.addIceCandidate(new RTCIceCandidate(c));
     }
     iceCandidates = [];
 
-    // createAnswer() generates our SDP — the intersection of both sides' capabilities.
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
 
     socket.emit('signal', { to: from, data: { type: 'answer', sdp: answer } });
     status.textContent = 'Connexion établie...';
   } else if (data.type === 'ice') {
-    // ICE candidates can arrive before or after the offer — buffer if needed.
     if (!remoteDescSet) {
       iceCandidates.push(data.candidate);
     } else {
