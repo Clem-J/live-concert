@@ -1,0 +1,174 @@
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700&family=Montserrat:wght@400;500&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:      #0c0b08;
+  --gold:    #c8a96e;
+  --text:    #f5f0e8;
+  --muted:   #6b6558;
+  --surface: #1a1814;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Montserrat', sans-serif;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 2rem 1rem;
+}
+
+header {
+  text-align: center;
+  margin-bottom: 2.5rem;
+}
+
+header h1 {
+  font-family: 'Syne', sans-serif;
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--gold);
+}
+
+header p {
+  margin-top: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+
+/* ── Video preview ── */
+.video-wrapper {
+  position: relative;
+  width: 100%;
+  max-width: 720px;
+  aspect-ratio: 16 / 9;
+  background: var(--surface);
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #2a2820;
+}
+
+video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.live-badge {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  background: #e53e3e;
+  color: #fff;
+  font-family: 'Syne', sans-serif;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  padding: 0.25rem 0.6rem;
+  border-radius: 3px;
+  display: none;
+}
+
+.live-badge.visible { display: block; }
+
+/* ── Controls ── */
+.controls {
+  margin-top: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.25rem;
+  width: 100%;
+  max-width: 720px;
+}
+
+.btn-live {
+  font-family: 'Syne', sans-serif;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--bg);
+  background: var(--gold);
+  border: none;
+  border-radius: 4px;
+  padding: 0.75rem 2.5rem;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.btn-live:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.btn-live:not(:disabled):hover { opacity: 0.85; }
+
+/* ── Share link ── */
+.share-link {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.share-link.visible { opacity: 1; }
+
+.share-link input {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid #2a2820;
+  border-radius: 4px;
+  color: var(--text);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 0.82rem;
+  padding: 0.6rem 0.9rem;
+  outline: none;
+}
+
+.btn-copy {
+  font-family: 'Syne', sans-serif;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--gold);
+  background: transparent;
+  border: 1px solid var(--gold);
+  border-radius: 4px;
+  padding: 0.6rem 1rem;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+  white-space: nowrap;
+}
+
+.btn-copy:hover {
+  background: var(--gold);
+  color: var(--bg);
+}
+
+/* ── Status message ── */
+.status {
+  font-size: 0.8rem;
+  color: var(--muted);
+  letter-spacing: 0.03em;
+}
+
+/* ── Viewer page ── */
+.offline-msg {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Syne', sans-serif;
+  font-size: 0.9rem;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+}
