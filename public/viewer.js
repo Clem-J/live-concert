@@ -7,11 +7,9 @@ const status      = document.getElementById('status');
 
 socket.on('connect', () => {
   status.textContent = 'Connecté. En attente du broadcaster...';
-  // Tell the server a viewer is here so it can notify the broadcaster
   socket.emit('viewer-joined');
 });
 
-// Broadcaster went live while we're already on the page
 socket.on('broadcaster-ready', () => {
   offlineMsg.style.display = 'none';
   status.textContent = 'Broadcaster en ligne — connexion...';
@@ -24,7 +22,43 @@ socket.on('broadcaster-left', () => {
   status.textContent = 'Le stream est terminé.';
 });
 
-// WebRTC signal handling: next step
-socket.on('signal', ({ from, data }) => {
-  console.log('Signal received from', from, data);
+let pc   = null;
+let from = null;
+
+function createPeerConnection() {
+  pc = new RTCPeerConnection();
+
+  // ontrack: remote media tracks arrive — pipe the full MediaStream into <video>
+  pc.ontrack = ({ streams }) => {
+    remoteVideo.srcObject = streams[0];
+    offlineMsg.style.display = 'none';
+    liveBadge.classList.add('visible');
+    status.textContent = 'En live.';
+  };
+
+  pc.onicecandidate = ({ candidate }) => {
+    if (candidate) {
+      socket.emit('signal', { to: from, data: { type: 'ice', candidate } });
+    }
+  };
+}
+
+socket.on('signal', async ({ from: senderId, data }) => {
+  from = senderId;
+
+  if (data.type === 'offer') {
+    if (!pc) createPeerConnection();
+
+    // Store broadcaster's SDP
+    await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+
+    // Generate our answer — the intersection of both sides' capabilities
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+
+    socket.emit('signal', { to: from, data: { type: 'answer', sdp: answer } });
+    status.textContent = 'Connexion établie...';
+  } else if (data.type === 'ice') {
+    if (pc) await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+  }
 });

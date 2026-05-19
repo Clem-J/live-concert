@@ -24,17 +24,57 @@ btnLive.addEventListener('click', () => {
   btnLive.disabled = true;
   liveBadge.classList.add('visible');
   status.textContent = 'En live !';
-
-  // Announce to the signaling server that the broadcast is starting
   socket.emit('broadcaster-ready');
-
   shareUrl.value = `${location.origin}/watch`;
   shareLink.classList.add('visible');
 });
 
-// Server tells us a viewer is ready — WebRTC offer/answer in next step
-socket.on('viewer-joined', (viewerId) => {
-  console.log('New viewer:', viewerId);
+// One RTCPeerConnection per viewer
+const peers = {};
+
+function createPeerConnection(viewerId) {
+  const pc = new RTCPeerConnection();
+
+  // addTrack() must be called BEFORE createOffer() so the SDP includes m=video + m=audio
+  window._localStream.getTracks().forEach((track) => {
+    pc.addTrack(track, window._localStream);
+  });
+
+  // onicecandidate: forward each discovered network path to the viewer
+  pc.onicecandidate = ({ candidate }) => {
+    if (candidate) {
+      socket.emit('signal', { to: viewerId, data: { type: 'ice', candidate } });
+    }
+  };
+
+  peers[viewerId] = pc;
+  return pc;
+}
+
+// New viewer: create RTCPeerConnection and send the SDP offer
+socket.on('viewer-joined', async (viewerId) => {
+  const pc = createPeerConnection(viewerId);
+
+  // createOffer() generates the SDP — our codec list and media capabilities
+  const offer = await pc.createOffer();
+
+  // setLocalDescription() stores the SDP locally AND starts ICE gathering
+  await pc.setLocalDescription(offer);
+
+  socket.emit('signal', { to: viewerId, data: { type: 'offer', sdp: offer } });
+});
+
+// Receive the viewer's answer (their SDP) and ICE candidates
+socket.on('signal', async ({ from, data }) => {
+  const pc = peers[from];
+  if (!pc) return;
+
+  if (data.type === 'answer') {
+    // Both sides now have each other's SDP — agreed codec, media direction
+    await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+  } else if (data.type === 'ice') {
+    await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+  }
 });
 
 btnCopy.addEventListener('click', async () => {
