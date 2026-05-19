@@ -8,22 +8,12 @@ const shareUrl   = document.getElementById('share-url');
 const btnCopy    = document.getElementById('btn-copy');
 const status     = document.getElementById('status');
 
-// getUserMedia() returns Promise<MediaStream>
-// MediaStream contains one video track + one audio track
 async function startPreview() {
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: true,
-      audio: true,
-    });
-
-    // srcObject accepts a MediaStream directly — no URL needed
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     localVideo.srcObject = stream;
-
     status.textContent = 'Caméra prête.';
     btnLive.disabled = false;
-
-    // Stored on window so createPeerConnection() can reach it in step 3
     window._localStream = stream;
   } catch (err) {
     status.textContent = `Erreur caméra : ${err.message}`;
@@ -35,8 +25,16 @@ btnLive.addEventListener('click', () => {
   liveBadge.classList.add('visible');
   status.textContent = 'En live !';
 
+  // Announce to the signaling server that the broadcast is starting
+  socket.emit('broadcaster-ready');
+
   shareUrl.value = `${location.origin}/watch`;
   shareLink.classList.add('visible');
+});
+
+// Server tells us a viewer is ready — WebRTC offer/answer in next step
+socket.on('viewer-joined', (viewerId) => {
+  console.log('New viewer:', viewerId);
 });
 
 btnCopy.addEventListener('click', async () => {
