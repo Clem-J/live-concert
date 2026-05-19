@@ -198,3 +198,14 @@ chore: init project — Express + Socket.io
 ```
 
 Each commit is a working snapshot. Run `git show <hash>` on any commit to see exactly what changed and why.
+
+
+## Roadmap
+
+- [ ] Device selector UI — choose camera and audio input from available devices (`enumerateDevices()`)
+- [ ] Pro hardware support — GH5 via LUMIX Webcam Software (USB, free) + Behringer UMC404HD as audio interface (class compliant, no driver needed)
+- [ ] TURN server — support for symmetric NAT and restrictive firewalls (Coturn or managed)
+- [ ] Deploy to Railway — persistent public URL, no ngrok needed
+- [ ] Video API — replace hand-rolled signaling + P2P with managed SFU (Session / Publisher / Subscriber model)
+- [ ] Room support — multiple concurrent broadcasts
+- [ ] Auth — token-based access control for broadcaster and viewers
