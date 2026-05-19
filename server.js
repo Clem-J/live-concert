@@ -15,22 +15,28 @@ app.get('/watch', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'watch.html'));
 });
 
-// In-memory session — one broadcaster at a time, no persistence
+// Single in-memory session — one broadcaster at a time, no persistence.
+// In production (multi-user, multi-room) this would live in Redis.
 let broadcasterSocketId = null;
 
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
 
-  // Broadcaster announces it's live
+  // Broadcaster announces it's live.
+  // We reject a second broadcaster so the slot is never silently stolen.
   socket.on('broadcaster-ready', () => {
+    if (broadcasterSocketId && broadcasterSocketId !== socket.id) {
+      socket.emit('error', 'Un broadcaster est déjà en live.');
+      return;
+    }
     broadcasterSocketId = socket.id;
     console.log('Broadcaster ready:', socket.id);
-    // Tell every connected viewer the broadcast just started
     socket.broadcast.emit('broadcaster-ready');
   });
 
-  // Viewer announces it wants to watch
-  // Server acts as matchmaker: tells the broadcaster who just arrived
+  // Viewer announces it wants to watch.
+  // The server acts as a matchmaker: it tells the broadcaster who just arrived
+  // so the broadcaster can initiate the WebRTC offer toward that specific viewer.
   socket.on('viewer-joined', () => {
     console.log('Viewer joined:', socket.id);
     if (broadcasterSocketId) {
@@ -38,8 +44,9 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Generic signal relay — forwards SDP and ICE payloads between peers
-  // The server never inspects the payload, only routes it
+  // Generic signal relay — forwards SDP offers/answers and ICE candidates.
+  // The server never inspects the payload; it only routes it to the right socket.
+  // payload: { to: socketId, data: { type: 'offer'|'answer'|'ice', ... } }
   socket.on('signal', ({ to, data }) => {
     io.to(to).emit('signal', { from: socket.id, data });
   });
