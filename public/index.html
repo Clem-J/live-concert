@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Live Concert — Broadcaster</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Live Concert</h1>
+    <p>Broadcaster</p>
+  </header>
+
+  <div class="video-wrapper">
+    <video id="local-video" autoplay muted playsinline></video>
+    <span class="live-badge" id="live-badge">● LIVE</span>
+  </div>
+
+  <div class="controls">
+    <span class="status" id="status">Accès à la caméra...</span>
+    <button class="btn-live" id="btn-live" disabled>Go Live</button>
+    <div class="share-link" id="share-link">
+      <input type="text" id="share-url" readonly>
+      <button class="btn-copy" id="btn-copy">Copier</button>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="broadcaster.js"></script>
+</body>
+</html>
