@@ -22,13 +22,14 @@ socket.on('broadcaster-left', () => {
   status.textContent = 'Le stream est terminé.';
 });
 
-let pc   = null;
-let from = null;
+let pc            = null;
+let from          = null;
+let iceCandidates = [];   // buffer: ICE candidates can arrive before the offer is processed
+let remoteDescSet = false;
 
 function createPeerConnection() {
   pc = new RTCPeerConnection();
 
-  // ontrack: remote media tracks arrive — pipe the full MediaStream into <video>
   pc.ontrack = ({ streams }) => {
     remoteVideo.srcObject = streams[0];
     offlineMsg.style.display = 'none';
@@ -49,16 +50,26 @@ socket.on('signal', async ({ from: senderId, data }) => {
   if (data.type === 'offer') {
     if (!pc) createPeerConnection();
 
-    // Store broadcaster's SDP
     await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+    remoteDescSet = true;
 
-    // Generate our answer — the intersection of both sides' capabilities
+    // Flush candidates that arrived before setRemoteDescription completed
+    for (const c of iceCandidates) {
+      await pc.addIceCandidate(new RTCIceCandidate(c));
+    }
+    iceCandidates = [];
+
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
 
     socket.emit('signal', { to: from, data: { type: 'answer', sdp: answer } });
     status.textContent = 'Connexion établie...';
   } else if (data.type === 'ice') {
-    if (pc) await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+    // addIceCandidate() requires setRemoteDescription to have been called first
+    if (!remoteDescSet) {
+      iceCandidates.push(data.candidate);
+    } else {
+      await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+    }
   }
 });
