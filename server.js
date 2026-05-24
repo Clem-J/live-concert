@@ -1,7 +1,23 @@
+require('dotenv').config();
+
 const express = require('express');
 const { createServer } = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
+const { Video, MediaMode } = require('@vonage/video');
+const fs = require('fs');
+
+// New Vonage Managed Video API auth: Application ID + RSA private key.
+// Unlike legacy OpenTok (API Key + Secret), the SDK signs every request
+// with a JWT built from the private key — the secret never travels over the wire.
+const vonageVideo = new Video({
+  applicationId: process.env.VONAGE_APPLICATION_ID,
+  privateKey: fs.readFileSync(process.env.VONAGE_PRIVATE_KEY),
+});
+
+// One session per server lifecycle — lazy init on first request.
+// Production would store sessionId per room in a database.
+let vonageSessionId = null;
 
 const app = express();
 const httpServer = createServer(app);
@@ -13,6 +29,27 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/watch', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'watch.html'));
+});
+
+// Expose l'adapter sélectionné au client sans lui donner accès aux variables d'env.
+app.get('/config', (req, res) => {
+  res.json({ adapter: process.env.SIGNALING_ADAPTER || 'p2p' });
+});
+
+// Génère une session Vonage (lazy) + un token pour le rôle demandé.
+app.get('/vonage/token', async (req, res) => {
+  try {
+    if (!vonageSessionId) {
+      const session = await vonageVideo.createSession({ mediaMode: MediaMode.ROUTED });
+      vonageSessionId = session.sessionId;
+    }
+    const role = req.query.role === 'publisher' ? 'publisher' : 'subscriber';
+    const token = vonageVideo.generateClientToken(vonageSessionId, { role });
+    // The client needs applicationId (not the legacy apiKey) to call OT.initSession().
+    res.json({ applicationId: process.env.VONAGE_APPLICATION_ID, sessionId: vonageSessionId, token });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Single in-memory session — one broadcaster at a time, no persistence.

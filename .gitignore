@@ -1,4 +1,5 @@
 node_modules/
 .env
+private.key
 .claude/settings.local.json
 .claude/plans/
