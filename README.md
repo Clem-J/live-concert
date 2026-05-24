@@ -1,24 +1,54 @@
 # Live Concert
 
-Browser-to-browser live streaming built from scratch with WebRTC — no OBS, no plugins, no framework.
+Browser-based live streaming in two modes: hand-rolled WebRTC P2P (`main`) and Vonage Video API SFU (`feature/vonage`).
 
-A broadcaster opens the app, hits **Go Live**, shares the link. Viewers join and watch the stream in real time, directly peer-to-peer.
+A broadcaster opens the app, hits **Go Live**, shares the link. Viewers join and watch in real time.
 
-Built as a learning project to understand WebRTC internals before working with a managed Video API.
+Built to understand WebRTC internals first, then abstract them behind a managed Video API — following the same progression a real product team would take.
+
+---
+
+## Branches
+
+| Branch | Mode | Description |
+|--------|------|-------------|
+| `main` | P2P | Pure WebRTC — no SDK, full signaling stack hand-rolled |
+| `feature/vonage` | SFU | Vonage Video API — adapter pattern, same UI, swappable backend |
+
+Switch adapter at runtime via `.env` — no code change required:
+
+```
+SIGNALING_ADAPTER=vonage   # Vonage SFU
+SIGNALING_ADAPTER=p2p      # Hand-rolled WebRTC
+```
 
 ---
 
 ## Stack
 
+**Common**
+
 | Layer | Technology |
 |-------|-----------|
 | Frontend | Vanilla HTML / CSS / JavaScript |
 | Backend | Node.js + Express |
+| UI | Dark theme — Syne + Montserrat, gold accent |
+
+**P2P mode (`main`)**
+
+| Layer | Technology |
+|-------|-----------|
 | Signaling | Socket.io |
 | Media | WebRTC (`RTCPeerConnection`, `getUserMedia`) |
 | NAT traversal | STUN (`stun.l.google.com`) |
 
-No frontend framework — intentional. WebRTC is easier to understand without abstraction layers.
+**Vonage mode (`feature/vonage`)**
+
+| Layer | Technology |
+|-------|-----------|
+| SDK | OpenTok.js (CDN) + `@vonage/video` (server) |
+| Transport | Vonage SFU — ROUTED media mode |
+| Auth | JWT RS256 — private key stays server-side |
 
 ---
 
@@ -26,17 +56,30 @@ No frontend framework — intentional. WebRTC is easier to understand without ab
 
 ```bash
 npm install
-npm start
-# → http://localhost:3000
 ```
 
-Open two browser tabs:
+**P2P mode**
+
+```bash
+# No .env needed
+npm start
+```
+
+**Vonage mode**
+
+```bash
+# .env
+VONAGE_APPLICATION_ID=your-app-id
+VONAGE_PRIVATE_KEY=./private.key
+SIGNALING_ADAPTER=vonage
+
+npm start
+```
+
+Then open two browser tabs:
 
 - `http://localhost:3000` → broadcaster (allow camera + mic, click **Go Live**)
 - `http://localhost:3000/watch` → viewer
-
-To test across two devices on the same network, replace `localhost` with your local IP (`192.168.x.x`).  
-To test across different networks, expose the server with `ngrok http 3000`.
 
 ---
 
@@ -44,23 +87,29 @@ To test across different networks, expose the server with `ngrok http 3000`.
 
 ```
 live-concert/
-├── server.js              # Express + Socket.io signaling server
-├── package.json
+├── server.js                    # Express + signaling + Vonage token endpoint
+├── .env                         # VONAGE_APPLICATION_ID, VONAGE_PRIVATE_KEY, SIGNALING_ADAPTER
+├── private.key                  # RSA key — never committed
 └── public/
-    ├── index.html         # Broadcaster page
-    ├── watch.html         # Viewer page
-    ├── broadcaster.js     # WebRTC offerer — getUserMedia, createOffer, addTrack
-    ├── viewer.js          # WebRTC answerer — createAnswer, ontrack
-    └── style.css          # Dark theme UI (gold accent, Syne + Montserrat)
+    ├── index.html               # Broadcaster page
+    ├── watch.html               # Viewer page
+    ├── broadcaster.js           # UI only — delegates to adapter
+    ├── viewer.js                # UI only — delegates to adapter
+    ├── style.css
+    └── adapters/
+        ├── SignalingAdapter.js  # Interface — connect(), disconnect(), onStream(), onStatus()...
+        ├── P2PAdapter.js        # Socket.io + RTCPeerConnection
+        ├── VonageAdapter.js     # OpenTok.js — session, publish, subscribe
+        └── index.js             # Factory — createAdapter() reads /config
 ```
 
 ---
 
 ## How it works
 
-### The WebRTC handshake
+### P2P mode
 
-WebRTC is peer-to-peer, but peers still need a server to find each other before the direct connection is established. This is called **signaling**.
+WebRTC is peer-to-peer, but peers need a server to find each other before connecting directly. This is called **signaling**.
 
 ```
 Broadcaster                    Server (Socket.io)             Viewer
@@ -68,128 +117,106 @@ Broadcaster                    Server (Socket.io)             Viewer
     │                          │──── broadcaster-ready ────────▶│
     │                          │◀─── viewer-joined ─────────────│
     │◀─── viewer-joined(id) ───│                                │
-    │                          │                                │
     │  createOffer()           │                                │
-    │  setLocalDescription()   │                                │
     │── signal(offer) ────────▶│──── signal(offer) ────────────▶│
-    │                          │         setRemoteDescription() │
-    │                          │         createAnswer()         │
-    │                          │         setLocalDescription()  │
     │◀─ signal(answer) ────────│◀─── signal(answer) ────────────│
-    │  setRemoteDescription()  │                                │
-    │                          │                                │
-    │  [ICE candidates trickle in both directions via signal]   │
-    │                          │                                │
-    │◀══════════════ P2P video stream (direct) ════════════════▶│
+    │  [ICE candidates trickle in both directions]              │
+    │◀══════════════ P2P video (direct) ══════════════════════▶│
 ```
 
-Once the handshake completes, the signaling server is out of the media path. Video and audio flow directly between the two browsers.
+Once ICE negotiation succeeds, the signaling server is out of the media path. Video and audio flow directly between browsers.
+
+**Key implementation details**
+
+- `addTrack()` must be called before `createOffer()` — without it the SDP has no `m=video` section and no media flows
+- ICE candidates can arrive before `setRemoteDescription()` completes — they're buffered and flushed once the remote description is set
+- One `RTCPeerConnection` per viewer on the broadcaster side (`peers` map keyed by socket ID)
+
+### Vonage mode
+
+```
+Broadcaster              Vonage SFU              Viewer
+    │                         │                     │
+    │── session.connect() ───▶│                     │
+    │── session.publish() ───▶│                     │
+    │                         │◀── session.connect()│
+    │                         │    streamCreated    │
+    │                         │◀── session.subscribe│
+    │◀══════════════ media (SFU) ══════════════════▶│
+```
+
+The broadcaster uploads once. Vonage distributes to all viewers — broadcaster bandwidth is independent of viewer count.
+
+SDP and ICE are handled internally by the SDK. The application code never sees them.
+
+**Key implementation details**
+
+- `OT.initSession()` is a local constructor — no network call. Attach listeners before `session.connect()`
+- The token (JWT RS256) is generated server-side with the private RSA key — the client only ever sees the signed token, never the key
+- `session.subscribe(stream, container)` injects a `<video>` element Vonage owns. That element must stay in the DOM — removing it triggers Vonage's pause-detection and freezes the image while audio continues
+- Viewer count is derived from `session.connections.length - 1` (subtract self) on each `connectionCreated`/`connectionDestroyed` event
 
 ---
 
-### Step by step
+## Adapter Pattern
 
-**1. `getUserMedia` — access camera and mic**
+`broadcaster.js` and `viewer.js` program against a common interface — they don't know which adapter is active.
 
-```js
-const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-localVideo.srcObject = stream;
+```
+.env  SIGNALING_ADAPTER=vonage|p2p
+         │
+GET /config → { adapter: "vonage" }
+         │
+createAdapter() → VonageAdapter | P2PAdapter
+         │
+SignalingAdapter interface
+  .onStream(cb)       → HTMLVideoElement (display-ready)
+  .onViewerCount(cb)  → number
+  .onStatus(cb)       → string
+  .onError(cb)        → string
+  .connect(role, localStream)
+  .disconnect()
 ```
 
-`getUserMedia()` returns a `MediaStream` — a live container of tracks (one video track, one audio track). We pipe it into a `<video>` element for the local preview. No upload, no server involved at this stage.
+`onStream` always delivers an `HTMLVideoElement`:
+- `P2PAdapter` wraps the WebRTC `MediaStream` in a `<video>` before firing
+- `VonageAdapter` passes Vonage's own managed `<video>` element directly
 
-**2. Signaling — the matchmaker**
-
-WebRTC paradox: two peers need an intermediary to find each other *before* they can connect directly. The signaling server (Socket.io) handles three events:
-
-- `broadcaster-ready` — broadcaster registers its socket ID
-- `viewer-joined` — server forwards the viewer's socket ID to the broadcaster
-- `signal` — generic relay for SDP and ICE payloads (server never inspects the content)
-
-The server holds no state beyond `broadcasterSocketId`. In production, this would live in Redis to support horizontal scaling.
-
-**3. SDP — the capability menu**
-
-Before sending video, both peers negotiate a common format via **SDP (Session Description Protocol)** — a text document listing supported codecs, bandwidth, media directions.
-
-```js
-// Broadcaster
-const offer = await pc.createOffer();
-await pc.setLocalDescription(offer);      // starts ICE gathering
-socket.emit('signal', { to: viewerId, data: { type: 'offer', sdp: offer } });
-
-// Viewer
-await pc.setRemoteDescription(offer);
-const answer = await pc.createAnswer();   // intersection of both capabilities
-await pc.setLocalDescription(answer);
-socket.emit('signal', { to: broadcasterId, data: { type: 'answer', sdp: answer } });
-```
-
-After the offer/answer exchange, both sides have agreed on codec and media direction.
-
-**4. ICE candidates — finding the path**
-
-Browsers sit behind NAT routers and don't have a stable public IP. ICE (Interactive Connectivity Establishment) solves this by collecting all possible network addresses (*candidates*) and testing each one:
-
-- Local IP (`192.168.x.x`) — works on the same network
-- Public IP via STUN — works across networks with standard NAT
-- TURN relay — fallback for symmetric NAT (all traffic relayed through a server)
-
-Candidates are sent via signaling as they're discovered ("trickle ICE"):
-
-```js
-pc.onicecandidate = ({ candidate }) => {
-  if (candidate) socket.emit('signal', { to: peerId, data: { type: 'ice', candidate } });
-};
-```
-
-One subtlety: ICE candidates can arrive at the viewer *before* the offer is fully processed. We buffer them and flush once `setRemoteDescription()` completes.
-
-**5. The stream flows**
-
-Once ICE negotiation succeeds, the browser selects the best path and opens the P2P channel. The viewer's `ontrack` fires:
-
-```js
-pc.ontrack = ({ streams }) => {
-  remoteVideo.srcObject = streams[0]; // full MediaStream, not just one track
-};
-```
-
-`streams[0]` is the complete `MediaStream` the broadcaster passed to `addTrack()` — video and audio together. Assigning it to `srcObject` plays both automatically.
+`viewer.js` appends the element only if it's not already in the container — Vonage has already inserted it, P2P's element is new.
 
 ---
 
-## Architecture: P2P vs SFU vs Vonage
+## P2P vs SFU — the key tradeoff
 
-This project uses **pure P2P**: broadcaster and viewer exchange media directly, the server never touches the video.
-
-| Architecture | How it works | Broadcaster uploads | Use case |
-|-------------|-------------|-------------------|---------|
-| **P2P** (this project) | Direct browser-to-browser | Once per viewer | 2–3 peers, learning, demos |
-| **SFU** (Selective Forwarding Unit) | Server receives one stream, redistributes to N viewers | Once | Live streaming, video calls at scale |
-| **MCU** (Multipoint Control Unit) | Server decodes, mixes, re-encodes | Once | Legacy conferencing, low-bandwidth clients |
-
-With 50 viewers in P2P, the broadcaster uploads the stream 50 times. A managed **Video API** receives it once and handles redistribution, TURN servers, codec adaptation, and room management — abstracting everything built manually here.
+| | P2P (`main`) | Vonage SFU (`feature/vonage`) |
+|---|---|---|
+| Broadcaster uploads | Once per viewer | Once regardless of viewer count |
+| Server involvement | Signaling only | Full media path |
+| Code complexity | SDP, ICE, RTCPeerConnection explicit | SDK handles everything |
+| Transparency | Full — you see every packet negotiation | Opaque — SDK internals hidden |
+| Dependencies | None (WebRTC is native) | OpenTok.js CDN + Vonage account |
+| QoS telemetry | None | ~5 XHR/sec to Vonage (built into SDK) |
 
 ---
 
 ## Limitations (by design)
 
 - **One broadcaster at a time** — single global stream, no rooms
-- **Local only** — no TURN server, symmetric NAT not supported
+- **No TURN server** — symmetric NAT not supported in P2P mode
 - **No auth** — open access
-- **In-memory state** — server restart drops all sessions
+- **In-memory session** — server restart clears Vonage session ID
 
-These are intentional constraints for a learning project. Each one maps to a concrete production problem worth knowing.
+These are intentional constraints for a focused demo. Each maps to a concrete production problem.
 
 ---
 
 ## Git history
 
-The commit history follows the WebRTC learning curve:
+The commit history follows the learning curve:
 
+**`main` — P2P from scratch**
 ```
-feat: STUN server, error handling, reconnection, pedagogical comments
+feat: STUN, error handling, reconnection, pedagogical comments
 fix:  buffer ICE candidates before remote description is set
 feat: SDP offer/answer exchange
 feat: signaling server — broadcaster-ready, viewer-joined, signal relay
@@ -197,15 +224,29 @@ feat: getUserMedia and broadcaster UI
 chore: init project — Express + Socket.io
 ```
 
-Each commit is a working snapshot. Run `git show <hash>` on any commit to see exactly what changed and why.
+**`feature/vonage` — Adapter Pattern + Vonage SFU**
+```
+fix:  let SDK own its video element, unify onStream contract
+fix:  mute hidden subscriber container to prevent audio leak
+docs: update fiche recap — factory, script order, broadcaster refactor
+feat: refactor broadcaster and viewer to use adapter pattern
+feat: add adapter factory — runtime selection via /config
+feat: add VonageAdapter — OpenTok.js SFU implementation
+feat: add P2PAdapter — extract Socket.io + WebRTC signaling
+feat: add SignalingAdapter base class
+feat: wire up Managed Video API server foundation
+```
 
+Each commit is a working snapshot. Run `git show <hash>` to see what changed and why.
+
+---
 
 ## Roadmap
 
-- [ ] Device selector UI — choose camera and audio input from available devices (`enumerateDevices()`)
-- [ ] Pro hardware support — GH5 via LUMIX Webcam Software (USB, free) + Behringer UMC404HD as audio interface (class compliant, no driver needed)
-- [ ] TURN server — support for symmetric NAT and restrictive firewalls (Coturn or managed)
-- [ ] Deploy to Railway — persistent public URL, no ngrok needed
-- [ ] Video API — replace hand-rolled signaling + P2P with managed SFU (Session / Publisher / Subscriber model)
+- [x] Hand-rolled WebRTC P2P — full signaling stack
+- [x] Vonage Video API — adapter pattern, SFU mode
+- [ ] Device selector UI — `enumerateDevices()`, choose camera/mic
+- [ ] TURN server — symmetric NAT support (Coturn or managed)
+- [ ] Deploy — persistent public URL
 - [ ] Room support — multiple concurrent broadcasts
-- [ ] Auth — token-based access control for broadcaster and viewers
+- [ ] Auth — token-based access control
