@@ -93,7 +93,34 @@ On utilise `ROUTED` : c'est l'avantage clé de Vonage vs un P2P maison.
 
 ---
 
-## 7. Architecture adapter pattern
+## 7. VonageAdapter — objets clés OT
+
+**`OT.initSession(applicationId, sessionId)`**
+→ Crée un objet JS local. **Aucun réseau.** Attacher les listeners ici, avant `connect()`.
+
+**`session.connect(token, callback)`**
+→ Connexion réseau réelle (WebSocket vers Vonage). Le token JWT prouve l'identité et le rôle.
+
+**`session.publish(publisher)`**
+→ Envoie le flux media vers le SFU Vonage. Une seule fois, quelle que soit le nombre de viewers.
+
+**`session.subscribe(stream, container)`**
+→ Reçoit un flux depuis le SFU. Vonage crée un `<video>` dans `container`.
+
+**Événements clés :**
+| Événement | Quand | Équivalent P2P |
+|---|---|---|
+| `streamCreated` | Un participant commence à publier | `viewer-joined` (inversé : c'est le viewer qui reçoit) |
+| `streamDestroyed` | Le flux s'arrête | `broadcaster-left` |
+| `connectionCreated` | Un participant rejoint la session | `connect` Socket.io |
+| `connectionDestroyed` | Un participant quitte | `disconnect` Socket.io |
+| `videoElementCreated` | Vonage a créé le `<video>` du subscriber | `pc.ontrack` |
+
+**Différence fondamentale vs P2P :** Avec Vonage SFU, le SDP et les ICE candidates sont gérés en interne — tu n'y as jamais accès. C'est ce qui rend le SDK simple mais moins transparent que du WebRTC brut.
+
+---
+
+## 8. Architecture adapter pattern
 
 ```
 .env  SIGNALING_ADAPTER=vonage|p2p
