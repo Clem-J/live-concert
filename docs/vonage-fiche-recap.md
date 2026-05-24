@@ -77,7 +77,23 @@ On utilise `ROUTED` : c'est l'avantage clé de Vonage vs un P2P maison.
 
 ---
 
-## 6. Architecture adapter pattern
+## 6. P2PAdapter
+
+**Rôle :** Encapsule toute la logique Socket.io + RTCPeerConnection extraite de broadcaster.js et viewer.js. Socket.io n'est instancié (`io()`) que si cet adapter est utilisé — VonageAdapter ne l'ouvre jamais.
+
+**Bifurcation interne :** `connect(role)` dispatche vers `_connectAsBroadcaster()` ou `_connectAsViewer()`. L'interface reste uniforme côté appelant.
+
+**`_peers` map (broadcaster) :** `{ viewerId → RTCPeerConnection }` — une connexion par viewer. Le compteur de viewers est recalculé depuis les clés de la map (pas un compteur séparé qui pourrait dériver).
+
+**ICE buffering (viewer) :** Les ICE candidates peuvent arriver AVANT que `setRemoteDescription()` soit terminé. On les bufférise dans `iceCandidates[]` et on les flush après — sinon elles sont silencieusement ignorées.
+
+**`addTrack()` avant `createOffer()` :** Obligatoire. Sans ça, le SDP généré n'a pas de section `m=video`/`m=audio` et aucun média ne circule.
+
+**`disconnect()` :** Ferme toutes les `RTCPeerConnection` et déconnecte Socket.io — lié au cycle de vie de l'adapter, pas à la page.
+
+---
+
+## 7. Architecture adapter pattern
 
 ```
 .env  SIGNALING_ADAPTER=vonage|p2p
