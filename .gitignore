@@ -3,3 +3,4 @@ node_modules/
 private.key
 .claude/settings.local.json
 .claude/plans/
+memory-bank/
