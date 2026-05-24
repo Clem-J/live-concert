@@ -95,8 +95,11 @@ class VonageAdapter extends SignalingAdapter {
     const subscriber = this._session.subscribe(stream, container);
 
     // videoElementCreated fires when Vonage has finished setting up the <video>.
-    // At that point element.srcObject is a live MediaStream.
+    // Mute the Vonage-controlled element immediately — display:none does not
+    // prevent audio playback, so without this the hidden player leaks sound
+    // before viewer.js applies its own muted = true on remoteVideo.
     subscriber.on('videoElementCreated', ({ element }) => {
+      element.muted = true;
       this._onStream?.(element.srcObject);
       container.remove();
     });
