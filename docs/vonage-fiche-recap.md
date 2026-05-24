@@ -120,7 +120,22 @@ On utilise `ROUTED` : c'est l'avantage clé de Vonage vs un P2P maison.
 
 ---
 
-## 8. Architecture adapter pattern
+## 8. Factory + refacto broadcaster/viewer
+
+**`createAdapter()` est async** car elle doit `fetch('/config')` avant d'instancier — sans async/await on retournerait une Promise non résolue.
+
+**Ordre des scripts (sans modules ES) :**
+```
+OpenTok.js → socket.io → SignalingAdapter → P2PAdapter → VonageAdapter → index.js → broadcaster.js
+```
+Chaque script suppose ses dépendances déjà définies dans le scope global. Inversion = `undefined` à l'exécution. ES modules (`type="module"`) et bundlers (Webpack, Vite) résolvent ça automatiquement.
+
+**broadcaster.js : 160 → 40 lignes**
+Ce qui reste : UI + `createAdapter()`. Ce qui a disparu : tout le signaling (SDP, ICE, peers, socket events) — maintenant dans `P2PAdapter`/`VonageAdapter`. broadcaster.js exprime son *intention*, pas son *implémentation*.
+
+---
+
+## 9. Architecture adapter pattern
 
 ```
 .env  SIGNALING_ADAPTER=vonage|p2p
