@@ -131,8 +131,15 @@ class P2PAdapter extends SignalingAdapter {
         this._pc = new RTCPeerConnection(P2PAdapter.RTC_CONFIG);
 
         // ontrack fires when the broadcaster's media arrives over the P2P channel.
+        // We wrap the stream in a <video> element so onStream always delivers
+        // an HTMLVideoElement, consistent with VonageAdapter's contract.
         this._pc.ontrack = ({ streams }) => {
-          if (streams[0]) this._onStream?.(streams[0]);
+          if (!streams[0]) return;
+          const video = document.createElement('video');
+          video.srcObject = streams[0];
+          video.autoplay  = true;
+          video.playsInline = true;
+          this._onStream?.(video);
         };
 
         this._pc.onicecandidate = ({ candidate }) => {

@@ -8,8 +8,9 @@
 class VonageAdapter extends SignalingAdapter {
   constructor() {
     super();
-    this._session = null;
+    this._session   = null;
     this._publisher = null;
+    this._subscriber = null;
   }
 
   async connect(role, localStream) {
@@ -85,29 +86,31 @@ class VonageAdapter extends SignalingAdapter {
   }
 
   _subscribe(stream) {
-    // Vonage creates a <video> element and inserts it into the target container.
-    // We use a hidden div to intercept the element and extract the raw MediaStream,
-    // then hand it to showStream() so our own UI stays in control.
-    const container = document.createElement('div');
-    container.style.display = 'none';
-    document.body.appendChild(container);
+    // Subscribe directly into the visible container — Vonage owns and manages
+    // its <video> element there. No hidden container needed: the element is
+    // rendered normally, so Vonage's pause detection never triggers.
+    const container = document.getElementById('remote-video');
+    this._subscriber = this._session.subscribe(stream, container, {
+      width: '100%',
+      height: '100%',
+    });
 
-    const subscriber = this._session.subscribe(stream, container);
-
-    // videoElementCreated fires when Vonage has finished setting up the <video>.
-    // Mute the Vonage-controlled element immediately — display:none does not
-    // prevent audio playback, so without this the hidden player leaks sound
-    // before viewer.js applies its own muted = true on remoteVideo.
-    subscriber.on('videoElementCreated', ({ element }) => {
+    // videoElementCreated fires once Vonage has created and inserted its <video>.
+    // We mute it (Chrome autoplay policy) and surface it via onStream so viewer.js
+    // can show the live badge and wire up the unmute button.
+    this._subscriber.on('videoElementCreated', ({ element }) => {
       element.muted = true;
-      this._onStream?.(element.srcObject);
-      container.remove();
+      this._onStream?.(element);
     });
   }
 
   disconnect() {
     this._publisher?.destroy();
     this._publisher = null;
+    if (this._subscriber && this._session) {
+      this._session.unsubscribe(this._subscriber);
+    }
+    this._subscriber = null;
     this._session?.disconnect();
     this._session = null;
   }

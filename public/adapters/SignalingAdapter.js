@@ -12,6 +12,8 @@
 
 class SignalingAdapter {
   // Each on*() stores the callback and returns `this` for chaining.
+  // onStream receives an HTMLVideoElement (not a raw MediaStream) — the adapter
+  // is responsible for producing a display-ready element.
   onStream(cb)      { this._onStream = cb;      return this; }
   onViewerCount(cb) { this._onViewerCount = cb; return this; }
   onStatus(cb)      { this._onStatus = cb;      return this; }
