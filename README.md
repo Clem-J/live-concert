@@ -85,6 +85,20 @@ Then open two browser tabs:
 
 ## Project structure
 
+### P2P mode
+```
+live-concert/
+├── server.js              # Express + Socket.io signaling server
+├── package.json
+└── public/
+    ├── index.html         # Broadcaster page
+    ├── watch.html         # Viewer page
+    ├── broadcaster.js     # WebRTC offerer — getUserMedia, createOffer, addTrack
+    ├── viewer.js          # WebRTC answerer — createAnswer, ontrack
+    └── style.css          # Dark theme UI (gold accent, Syne + Montserrat)
+```
+
+### Vonage mode
 ```
 live-concert/
 ├── server.js                    # Express + signaling + Vonage token endpoint
