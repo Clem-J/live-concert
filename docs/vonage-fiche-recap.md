@@ -55,7 +55,29 @@ On utilise `ROUTED` : c'est l'avantage clé de Vonage vs un P2P maison.
 
 ---
 
-## 5. Architecture adapter pattern
+## 5. SignalingAdapter — l'interface commune
+
+**Rôle :** Définir le contrat que toutes les implémentations (P2P, Vonage...) doivent respecter.
+
+**Pattern :** Strategy — les implémentations sont interchangeables derrière une interface commune. broadcaster.js et viewer.js programment contre l'interface, jamais contre une implémentation concrète.
+
+**Les 4 callbacks :**
+| Callback | Qui | Quand |
+|---|---|---|
+| `onStream(stream)` | viewer | Un flux video arrive |
+| `onViewerCount(n)` | broadcaster | Un viewer rejoint ou quitte |
+| `onStatus(msg)` | les deux | Changement d'état réseau |
+| `onError(msg)` | les deux | Quelque chose a échoué |
+
+**Règle ordre :** Toujours enregistrer les callbacks AVANT d'appeler `connect()`. Les events peuvent arriver dès la connexion établie — callbacks non enregistrés = events silencieusement perdus.
+
+**Method chaining :** Chaque `on*()` retourne `this` → `adapter.onStream(cb).onError(cb).connect('viewer')`
+
+**Simulation d'interface en JS :** Pas d'interface compilée en JS vanilla. On `throw` dans la classe de base si une méthode n'est pas surchargée — erreur explicite à l'exécution plutôt qu'un `undefined` silencieux.
+
+---
+
+## 6. Architecture adapter pattern
 
 ```
 .env  SIGNALING_ADAPTER=vonage|p2p
